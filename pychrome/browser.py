@@ -21,12 +21,62 @@ class Browser(object):
             self._tabs = self._all_tabs[self.dev_url] = {}
         else:
             self._tabs = self._all_tabs[self.dev_url]
+        rp = requests.get("%s/json/version" % self.dev_url)
+        version_data = rp.json()
+        self.websocket_url = version_data['webSocketDebuggerUrl']
+        self._connection = None  # type: Tab
+
+    @property
+    def connection(self):
+        """
+        The main websocket connection to the remote browser.
+        If a connection is not active it will be created.
+
+        :rtype: Tab
+        """
+        if self._connection is None:
+            self._connection = Tab(
+                id='browser', type='browser', webSocketDebuggerUrl=self.websocket_url)
+            self._connection.start()
+        return self._connection
+
+    @connection.deleter
+    def connection(self):
+        if self._connection is not None:
+            self._connection.stop()
+            self._connection = None
 
     def new_tab(self, url=None, timeout=None):
         url = url or ''
         rp = requests.get("%s/json/new?%s" % (self.dev_url, url), json=True, timeout=timeout)
         tab = Tab(**rp.json())
         self._tabs[tab.id] = tab
+        return tab
+
+    def new_context_tab(self, url=None, timeout=None, browser_context=None):
+        """
+        Create a new tab in a new browser context. This tab will then have it's own
+        cookies, storage etc. The Tab will have the 'browser_context' property set
+
+        :param url: Url to start new tab with
+        :param timeout: How long to wait for a response from the remote browser
+        :param browser_context: If supplide reuses existing browser context to create tab
+        :return: The Tab object for the new context
+        :rtype: Tab
+        """
+        url = url or 'about:blank'
+        connection = self.connection
+        if not browser_context:
+            context = connection.Target.createBrowserContext()
+            browser_context = context['browserContextId']
+        target = connection.Target.createTarget(
+            url=url, browserContextId=browser_context)
+        self.list_tab(timeout=timeout)
+        if target['targetId'] in self._tabs:
+            tab = self._tabs[target['targetId']]
+            tab.browser_context = browser_context
+        else:
+            raise KeyError("Failed to find tab with target ID: {}".format(target['targetId']))
         return tab
 
     def list_tab(self, timeout=None):

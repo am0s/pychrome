@@ -19,6 +19,7 @@ try:
 except ImportError:
     import queue
 
+Empty = queue.Empty
 
 __all__ = ["Tab"]
 
@@ -53,6 +54,7 @@ class Tab(object):
         self.id = kwargs.get("id")
         self.type = kwargs.get("type")
         self.debug = os.getenv("DEBUG", False)
+        self.browser_context = None
 
         self._websocket_url = kwargs.get("webSocketDebuggerUrl")
         self._kwargs = kwargs
@@ -82,7 +84,10 @@ class Tab(object):
         message_json = json.dumps(message)
 
         if self.debug:  # pragma: no cover
-            print("SEND > %s" % message_json)
+            try:
+                logger.debug("SEND > %s" % message_json)
+            except Exception:
+                pass
 
         if not isinstance(timeout, (int, float)) or timeout > 1:
             q_timeout = 1
@@ -104,7 +109,7 @@ class Tab(object):
                         timeout -= q_timeout
 
                     return self.method_results[message['id']].get(timeout=q_timeout)
-                except queue.Empty:
+                except Empty:
                     if isinstance(timeout, (int, float)) and timeout <= 0:
                         raise TimeoutException("Calling %s timeout" % message['method'])
 
@@ -129,7 +134,10 @@ class Tab(object):
                 return
 
             if self.debug:  # pragma: no cover
-                print('< RECV %s' % message_json)
+                try:
+                    logger.debug('< RECV %s' % message_json)
+                except Exception:
+                    pass
 
             if "method" in message:
                 self.event_queue.put(message)
@@ -144,7 +152,7 @@ class Tab(object):
         while not self._stopped.is_set():
             try:
                 event = self.event_queue.get(timeout=1)
-            except queue.Empty:
+            except Empty:
                 continue
 
             if event['method'] in self.event_handlers:
